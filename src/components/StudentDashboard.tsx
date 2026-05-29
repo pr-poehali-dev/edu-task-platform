@@ -143,7 +143,7 @@ export default function StudentDashboard({ user, onLogout }: Props) {
                       <span className="font-medium text-foreground">{a.title}</span>
                       {statusLabel(a)}
                     </div>
-                    <p className="text-sm text-muted-foreground line-clamp-2">{a.description}</p>
+                    <p className="text-sm text-muted-foreground">{a.description}</p>
                     <div className="flex flex-wrap gap-x-4 mt-1.5 text-xs text-muted-foreground">
                       <span>Дедлайн: {fmt(a.deadline)}</span>
                       <span>Макс. балл: {a.max_score}</span>
@@ -196,7 +196,7 @@ export default function StudentDashboard({ user, onLogout }: Props) {
                   {selected.comment && (
                     <>
                       <p className="text-xs font-medium text-green-700 mt-2 mb-1">КОММЕНТАРИЙ ПРЕПОДАВАТЕЛЯ</p>
-                      <p className="text-sm text-green-900">{selected.comment}</p>
+                      <p className="text-sm text-green-900 whitespace-pre-wrap">{selected.comment}</p>
                     </>
                   )}
                 </div>
