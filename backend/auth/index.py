@@ -36,7 +36,7 @@ def handler(event: dict, context) -> dict:
             }
         return {'statusCode': 401, 'headers': headers, 'body': json.dumps({'success': False, 'error': 'Неверный логин или пароль'})}
 
-    if action == 'register':
+    if action == 'create_student':
         username = body.get('username', '').strip()
         password = body.get('password', '').strip()
         full_name = body.get('full_name', '').strip()
@@ -46,7 +46,7 @@ def handler(event: dict, context) -> dict:
         cur.execute("SELECT id FROM users WHERE username = %s", (username,))
         if cur.fetchone():
             conn.close()
-            return {'statusCode': 409, 'headers': headers, 'body': json.dumps({'success': False, 'error': 'Пользователь уже существует'})}
+            return {'statusCode': 409, 'headers': headers, 'body': json.dumps({'success': False, 'error': 'Логин уже занят'})}
         cur.execute(
             "INSERT INTO users (username, password_hash, full_name, role) VALUES (%s, %s, %s, 'student') RETURNING id",
             (username, password, full_name)
@@ -55,9 +55,17 @@ def handler(event: dict, context) -> dict:
         conn.commit()
         conn.close()
         return {
-            'statusCode': 200,
-            'headers': headers,
+            'statusCode': 200, 'headers': headers,
             'body': json.dumps({'success': True, 'user': {'id': new_id, 'username': username, 'full_name': full_name, 'role': 'student'}})
+        }
+
+    if action == 'get_students':
+        cur.execute("SELECT id, username, full_name FROM users WHERE role = 'student' ORDER BY full_name")
+        rows = cur.fetchall()
+        conn.close()
+        return {
+            'statusCode': 200, 'headers': headers,
+            'body': json.dumps({'success': True, 'students': [{'id': r[0], 'username': r[1], 'full_name': r[2]} for r in rows]})
         }
 
     conn.close()

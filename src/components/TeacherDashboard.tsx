@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User } from '@/pages/Index';
-import { apiGetAssignments, apiCreateAssignment, apiGetSolutions, apiGradeSolution } from '@/lib/api';
-import Icon from '@/components/ui/icon';
+import { apiGetAssignments, apiCreateAssignment, apiGetSolutions, apiGradeSolution, apiCreateStudent, apiGetStudents } from '@/lib/api';
 
 interface Assignment {
   id: number;
@@ -22,7 +21,12 @@ interface Solution {
   student_username: string;
   score: number | null;
   comment: string | null;
-  graded_at: string | null;
+}
+
+interface Student {
+  id: number;
+  username: string;
+  full_name: string;
 }
 
 interface Props {
@@ -30,23 +34,37 @@ interface Props {
   onLogout: () => void;
 }
 
+type Tab = 'assignments' | 'solutions' | 'students';
+
+const inp = "w-full px-3 py-2 border border-border rounded text-sm bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary";
+const btn = "px-4 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity";
+const btnSecondary = "px-4 py-2 bg-secondary text-secondary-foreground border border-border rounded text-sm font-medium hover:bg-muted transition-colors";
+
 export default function TeacherDashboard({ user, onLogout }: Props) {
-  const [tab, setTab] = useState<'assignments' | 'solutions'>('assignments');
+  const [tab, setTab] = useState<Tab>('assignments');
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [gradeModal, setGradeModal] = useState<Solution | null>(null);
 
-  const [form, setForm] = useState({ title: '', description: '', deadline: '', max_score: '100' });
+  const [showCreateAssignment, setShowCreateAssignment] = useState(false);
+  const [showGrade, setShowGrade] = useState<Solution | null>(null);
+  const [showCreateStudent, setShowCreateStudent] = useState(false);
+
+  const [aForm, setAForm] = useState({ title: '', description: '', deadline: '', max_score: '100' });
+  const [sForm, setSForm] = useState({ username: '', password: '', full_name: '' });
   const [gradeForm, setGradeForm] = useState({ score: '', comment: '' });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
 
-  useEffect(() => {
-    loadAssignments();
-  }, []);
+  useEffect(() => { loadAssignments(); }, []);
+
+  const flash = (text: string, isErr = false) => {
+    if (isErr) { setErr(text); setTimeout(() => setErr(''), 3000); }
+    else { setMsg(text); setTimeout(() => setMsg(''), 3000); }
+  };
 
   const loadAssignments = async () => {
     setLoading(true);
@@ -62,366 +80,366 @@ export default function TeacherDashboard({ user, onLogout }: Props) {
     if (res.success) setSolutions(res.solutions);
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const loadStudents = async () => {
+    const res = await apiGetStudents();
+    if (res.success) setStudents(res.students);
+  };
+
+  const handleTabStudents = () => {
+    setTab('students');
+    loadStudents();
+  };
+
+  const handleCreateAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     const res = await apiCreateAssignment({
-      title: form.title,
-      description: form.description,
-      deadline: form.deadline || undefined,
-      max_score: parseInt(form.max_score) || 100,
+      title: aForm.title, description: aForm.description,
+      deadline: aForm.deadline || undefined,
+      max_score: parseInt(aForm.max_score) || 100,
       teacher_id: user.id,
     });
     setSaving(false);
     if (res.success) {
-      setShowCreate(false);
-      setForm({ title: '', description: '', deadline: '', max_score: '100' });
+      setShowCreateAssignment(false);
+      setAForm({ title: '', description: '', deadline: '', max_score: '100' });
       loadAssignments();
+      flash('Задание создано');
+    } else {
+      flash(res.error || 'Ошибка', true);
     }
   };
 
   const handleGrade = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gradeModal) return;
+    if (!showGrade || !selectedAssignment) return;
     setSaving(true);
     const res = await apiGradeSolution({
-      solution_id: gradeModal.id,
-      score: parseInt(gradeForm.score),
-      comment: gradeForm.comment,
-      teacher_id: user.id,
+      solution_id: showGrade.id, score: parseInt(gradeForm.score),
+      comment: gradeForm.comment, teacher_id: user.id,
     });
     setSaving(false);
     if (res.success) {
-      setMsg('Оценка выставлена');
-      setGradeModal(null);
+      setShowGrade(null);
       setGradeForm({ score: '', comment: '' });
-      if (selectedAssignment) {
-        const updated = await apiGetSolutions(selectedAssignment.id);
-        if (updated.success) setSolutions(updated.solutions);
-      }
-      setTimeout(() => setMsg(''), 3000);
+      const updated = await apiGetSolutions(selectedAssignment.id);
+      if (updated.success) setSolutions(updated.solutions);
+      flash('Оценка сохранена');
     }
   };
 
-  const formatDate = (d: string | null) => {
-    if (!d) return '—';
-    return new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const handleCreateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    const res = await apiCreateStudent(sForm.username.trim(), sForm.password.trim(), sForm.full_name.trim());
+    setSaving(false);
+    if (res.success) {
+      setShowCreateStudent(false);
+      setSForm({ username: '', password: '', full_name: '' });
+      loadStudents();
+      flash('Студент добавлен');
+    } else {
+      flash(res.error || 'Ошибка', true);
+    }
   };
 
-  const isOverdue = (deadline: string | null) => {
-    if (!deadline) return false;
-    return new Date(deadline) < new Date();
+  const fmt = (d: string | null) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="bg-[hsl(var(--edu-navy))] text-white px-4 py-3 shadow-lg">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[hsl(var(--edu-accent))] flex items-center justify-center">
-              <Icon name="GraduationCap" size={18} className="text-white" />
-            </div>
-            <div>
-              <div className="font-bold text-sm leading-none">ЭдуПортал</div>
-              <div className="text-slate-400 text-xs mt-0.5">Преподаватель</div>
-            </div>
+      <header className="bg-card border-b border-border px-4 py-3">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div>
+            <span className="font-bold text-foreground">Учебная платформа</span>
+            <span className="ml-2 text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded">Преподаватель</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-300 hidden sm:block">{user.full_name}</span>
-            <button onClick={onLogout} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm transition-colors">
-              <Icon name="LogOut" size={16} />
-              <span className="hidden sm:block">Выйти</span>
-            </button>
+            <span className="text-sm text-muted-foreground hidden sm:block">{user.full_name}</span>
+            <button onClick={onLogout} className="text-sm text-muted-foreground hover:text-foreground transition-colors">Выйти</button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto w-full px-4 py-6 flex-1">
+      <div className="max-w-4xl mx-auto w-full px-4 py-5 flex-1">
         {/* Tabs */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div className="flex bg-secondary rounded-lg p-1">
+        <div className="flex gap-1 mb-5 border-b border-border">
+          {[
+            { key: 'assignments', label: `Задания (${assignments.length})` },
+            { key: 'solutions', label: selectedAssignment ? `Решения — ${selectedAssignment.title}` : 'Решения', disabled: !selectedAssignment },
+            { key: 'students', label: 'Студенты' },
+          ].map(({ key, label, disabled }) => (
             <button
-              onClick={() => setTab('assignments')}
-              className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors ${tab === 'assignments' ? 'bg-[hsl(var(--edu-blue))] text-white shadow' : 'text-muted-foreground hover:text-foreground'}`}
+              key={key}
+              disabled={disabled}
+              onClick={() => key === 'students' ? handleTabStudents() : !disabled && setTab(key as Tab)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed'
+              }`}
             >
-              <span className="flex items-center gap-2"><Icon name="BookOpen" size={15} />Задания ({assignments.length})</span>
+              {label}
             </button>
-            {selectedAssignment && (
-              <button
-                onClick={() => setTab('solutions')}
-                className={`px-4 py-2 rounded-md text-sm font-semibold transition-colors ${tab === 'solutions' ? 'bg-[hsl(var(--edu-blue))] text-white shadow' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <span className="flex items-center gap-2"><Icon name="FileText" size={15} />Решения ({solutions.length})</span>
-              </button>
-            )}
-          </div>
-          {tab === 'assignments' && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--edu-blue))] text-white rounded-lg text-sm font-semibold hover:bg-[hsl(var(--edu-navy))] transition-colors"
-            >
-              <Icon name="Plus" size={16} />
-              Новое задание
-            </button>
-          )}
+          ))}
         </div>
 
-        {msg && (
-          <div className="mb-4 flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-2.5 text-sm animate-fade-in">
-            <Icon name="CheckCircle" size={15} />
-            {msg}
-          </div>
-        )}
+        {/* Flash messages */}
+        {msg && <div className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">{msg}</div>}
+        {err && <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</div>}
 
-        {/* Assignments tab */}
+        {/* === ASSIGNMENTS === */}
         {tab === 'assignments' && (
-          <div className="space-y-3 animate-fade-in">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-foreground">Список заданий</h2>
+              <button onClick={() => setShowCreateAssignment(true)} className={btn}>+ Новое задание</button>
+            </div>
+
             {loading ? (
-              <div className="text-center py-16 text-muted-foreground">
-                <Icon name="Loader2" size={32} className="mx-auto mb-3 animate-spin opacity-40" />
-                Загрузка...
-              </div>
+              <p className="text-sm text-muted-foreground py-8 text-center">Загрузка...</p>
             ) : assignments.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
-                <Icon name="BookOpen" size={40} className="mx-auto mb-3 opacity-30" />
-                <p className="font-semibold">Заданий пока нет</p>
-                <p className="text-sm mt-1">Нажмите «Новое задание», чтобы добавить первое</p>
+              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
+                <p className="font-medium">Заданий пока нет</p>
+                <p className="text-sm mt-1">Нажмите «Новое задание», чтобы добавить</p>
               </div>
             ) : (
-              assignments.map(a => (
-                <div key={a.id} className="bg-card border border-border rounded-xl p-4 hover:shadow-md transition-shadow animate-slide-up">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-foreground text-base">{a.title}</h3>
-                        {isOverdue(a.deadline) && (
-                          <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">Истёк срок</span>
-                        )}
-                      </div>
-                      <p className="text-muted-foreground text-sm mt-1 line-clamp-2">{a.description}</p>
-                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Icon name="Calendar" size={12} />
-                          Дедлайн: {formatDate(a.deadline)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Icon name="Trophy" size={12} />
-                          Макс. балл: {a.max_score}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Icon name="Users" size={12} />
-                          Решений: {a.solutions_count}
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => loadSolutions(a)}
-                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-secondary text-[hsl(var(--edu-blue))] rounded-lg text-sm font-semibold hover:bg-[hsl(var(--edu-blue))] hover:text-white transition-colors"
-                    >
-                      <Icon name="Eye" size={14} />
-                      <span className="hidden sm:inline">Решения</span>
-                    </button>
-                  </div>
-                </div>
-              ))
+              <table className="w-full text-sm border border-border rounded-lg overflow-hidden">
+                <thead className="bg-secondary text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-foreground">Название</th>
+                    <th className="px-3 py-2 font-medium text-foreground hidden sm:table-cell">Дедлайн</th>
+                    <th className="px-3 py-2 font-medium text-foreground hidden sm:table-cell">Балл</th>
+                    <th className="px-3 py-2 font-medium text-foreground">Решений</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignments.map((a, i) => (
+                    <tr key={a.id} className={`border-t border-border ${i % 2 === 0 ? 'bg-card' : 'bg-background'}`}>
+                      <td className="px-3 py-2.5 font-medium text-foreground">{a.title}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell">{fmt(a.deadline)}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell">{a.max_score}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{a.solutions_count}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        <button
+                          onClick={() => loadSolutions(a)}
+                          className="text-primary text-sm hover:underline font-medium"
+                        >
+                          Решения
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         )}
 
-        {/* Solutions tab */}
+        {/* === SOLUTIONS === */}
         {tab === 'solutions' && selectedAssignment && (
-          <div className="animate-fade-in">
-            <div className="bg-[hsl(var(--edu-blue))] text-white rounded-xl p-4 mb-4">
-              <button onClick={() => setTab('assignments')} className="flex items-center gap-1 text-blue-200 text-sm mb-2 hover:text-white transition-colors">
-                <Icon name="ChevronLeft" size={15} />
-                К заданиям
-              </button>
-              <h2 className="font-bold text-lg">{selectedAssignment.title}</h2>
-              <p className="text-blue-100 text-sm mt-1">{selectedAssignment.description}</p>
+          <div>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div>
+                <h2 className="font-semibold text-foreground">{selectedAssignment.title}</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">{selectedAssignment.description}</p>
+              </div>
+              <button onClick={() => setTab('assignments')} className={btnSecondary}>← К заданиям</button>
             </div>
-            <div className="space-y-3">
-              {solutions.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
-                  <Icon name="FileText" size={40} className="mx-auto mb-3 opacity-30" />
-                  <p className="font-semibold">Решений ещё нет</p>
-                </div>
-              ) : (
-                solutions.map(s => (
-                  <div key={s.id} className="bg-card border border-border rounded-xl p-4 animate-slide-up">
+
+            {solutions.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
+                <p className="font-medium">Решений ещё нет</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {solutions.map(s => (
+                  <div key={s.id} className="bg-card border border-border rounded-lg p-4">
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div>
-                        <div className="font-bold text-foreground">{s.student_name}</div>
-                        <div className="text-xs text-muted-foreground">@{s.student_username} · {formatDate(s.submitted_at)}</div>
+                        <p className="font-medium text-foreground">{s.student_name}</p>
+                        <p className="text-xs text-muted-foreground">@{s.student_username} · {fmt(s.submitted_at)}</p>
                       </div>
                       {s.score !== null ? (
                         <div className="flex items-center gap-2">
-                          <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
-                            {s.score}/{selectedAssignment.max_score}
+                          <span className="text-sm font-bold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
+                            {s.score} / {selectedAssignment.max_score}
                           </span>
                           <button
-                            onClick={() => { setGradeModal(s); setGradeForm({ score: String(s.score), comment: s.comment || '' }); }}
-                            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border transition-colors"
+                            onClick={() => { setShowGrade(s); setGradeForm({ score: String(s.score), comment: s.comment || '' }); }}
+                            className="text-xs text-muted-foreground hover:text-foreground border border-border rounded px-2 py-1"
                           >
                             Изменить
                           </button>
                         </div>
                       ) : (
                         <button
-                          onClick={() => { setGradeModal(s); setGradeForm({ score: '', comment: '' }); }}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-[hsl(var(--edu-blue))] text-white rounded-lg text-sm font-semibold hover:bg-[hsl(var(--edu-navy))] transition-colors"
+                          onClick={() => { setShowGrade(s); setGradeForm({ score: '', comment: '' }); }}
+                          className={btn}
                         >
-                          <Icon name="Star" size={14} />
                           Оценить
                         </button>
                       )}
                     </div>
+
                     <div className="mt-3 space-y-2">
-                      <div className="bg-muted rounded-lg p-3">
-                        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Решение</div>
+                      <div className="bg-secondary rounded p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">РЕШЕНИЕ</p>
                         <p className="text-sm text-foreground whitespace-pre-wrap">{s.solution_text}</p>
                       </div>
                       {s.answer_text && (
-                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                          <div className="text-xs font-semibold text-blue-600 uppercase tracking-wider mb-1">Ответ</div>
-                          <p className="text-sm font-mono-edu text-blue-900">{s.answer_text}</p>
+                        <div className="bg-blue-50 border border-blue-100 rounded p-3">
+                          <p className="text-xs font-medium text-blue-600 mb-1">ОТВЕТ</p>
+                          <p className="text-sm font-mono text-blue-900">{s.answer_text}</p>
                         </div>
                       )}
                       {s.comment && (
-                        <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
-                          <div className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-1">Комментарий преподавателя</div>
+                        <div className="bg-amber-50 border border-amber-100 rounded p-3">
+                          <p className="text-xs font-medium text-amber-600 mb-1">КОММЕНТАРИЙ</p>
                           <p className="text-sm text-amber-900">{s.comment}</p>
                         </div>
                       )}
                     </div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* === STUDENTS === */}
+        {tab === 'students' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-foreground">Студенты</h2>
+              <button onClick={() => setShowCreateStudent(true)} className={btn}>+ Добавить студента</button>
             </div>
+            {students.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-lg">
+                <p className="font-medium">Студентов пока нет</p>
+                <p className="text-sm mt-1">Добавьте первого студента</p>
+              </div>
+            ) : (
+              <table className="w-full text-sm border border-border rounded-lg overflow-hidden">
+                <thead className="bg-secondary text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium text-foreground">ФИО</th>
+                    <th className="px-3 py-2 font-medium text-foreground">Логин</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((s, i) => (
+                    <tr key={s.id} className={`border-t border-border ${i % 2 === 0 ? 'bg-card' : 'bg-background'}`}>
+                      <td className="px-3 py-2.5 font-medium text-foreground">{s.full_name}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{s.username}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>
 
-      {/* Create Assignment Modal */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4 animate-fade-in" onClick={e => e.target === e.currentTarget && setShowCreate(false)}>
-          <div className="bg-card rounded-2xl w-full max-w-lg shadow-2xl animate-slide-up">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="font-bold text-foreground text-lg">Новое задание</h2>
-              <button onClick={() => setShowCreate(false)} className="text-muted-foreground hover:text-foreground transition-colors">
-                <Icon name="X" size={20} />
-              </button>
+      {/* Modal: Create Assignment */}
+      {showCreateAssignment && (
+        <Modal title="Новое задание" onClose={() => setShowCreateAssignment(false)}>
+          <form onSubmit={handleCreateAssignment} className="space-y-4">
+            <Field label="Название">
+              <input className={inp} type="text" value={aForm.title} onChange={e => setAForm(f => ({ ...f, title: e.target.value }))} placeholder="Например: Контрольная работа №1" required />
+            </Field>
+            <Field label="Условие задания">
+              <textarea className={inp + ' resize-none'} rows={4} value={aForm.description} onChange={e => setAForm(f => ({ ...f, description: e.target.value }))} placeholder="Опишите задание подробно" required />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Дедлайн">
+                <input className={inp} type="datetime-local" value={aForm.deadline} onChange={e => setAForm(f => ({ ...f, deadline: e.target.value }))} />
+              </Field>
+              <Field label="Макс. балл">
+                <input className={inp} type="number" value={aForm.max_score} onChange={e => setAForm(f => ({ ...f, max_score: e.target.value }))} min="1" />
+              </Field>
             </div>
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Название</label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
-                  placeholder="Контрольная работа №1"
-                  required
-                  className="w-full px-4 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Описание / условие задачи</label>
-                <textarea
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Подробно опишите задание..."
-                  required
-                  rows={4}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground resize-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Дедлайн</label>
-                  <input
-                    type="datetime-local"
-                    value={form.deadline}
-                    onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Макс. балл</label>
-                  <input
-                    type="number"
-                    value={form.max_score}
-                    onChange={e => setForm(f => ({ ...f, max_score: e.target.value }))}
-                    min="1"
-                    max="1000"
-                    className="w-full px-3 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowCreate(false)} className="flex-1 py-2.5 rounded-lg border border-border text-sm font-semibold text-foreground hover:bg-secondary transition-colors">
-                  Отмена
-                </button>
-                <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-lg bg-[hsl(var(--edu-blue))] text-white text-sm font-semibold hover:bg-[hsl(var(--edu-navy))] transition-colors disabled:opacity-60">
-                  {saving ? 'Создание...' : 'Создать задание'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <ModalActions onCancel={() => setShowCreateAssignment(false)} saving={saving} label="Создать" />
+          </form>
+        </Modal>
       )}
 
-      {/* Grade Modal */}
-      {gradeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4 animate-fade-in" onClick={e => e.target === e.currentTarget && setGradeModal(null)}>
-          <div className="bg-card rounded-2xl w-full max-w-md shadow-2xl animate-slide-up">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="font-bold text-foreground text-lg">Выставить оценку</h2>
-              <button onClick={() => setGradeModal(null)} className="text-muted-foreground hover:text-foreground transition-colors">
-                <Icon name="X" size={20} />
-              </button>
-            </div>
-            <div className="px-6 py-3 bg-muted/50 border-b border-border">
-              <div className="text-sm font-semibold text-foreground">{gradeModal.student_name}</div>
-              <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{gradeModal.solution_text}</div>
-            </div>
-            <form onSubmit={handleGrade} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
-                  Оценка / баллы (макс. {selectedAssignment?.max_score})
-                </label>
-                <input
-                  type="number"
-                  value={gradeForm.score}
-                  onChange={e => setGradeForm(f => ({ ...f, score: e.target.value }))}
-                  placeholder="0"
-                  min="0"
-                  max={selectedAssignment?.max_score}
-                  required
-                  className="w-full px-4 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground font-mono-edu text-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Комментарий</label>
-                <textarea
-                  value={gradeForm.comment}
-                  onChange={e => setGradeForm(f => ({ ...f, comment: e.target.value }))}
-                  placeholder="Развёрнутый комментарий к работе..."
-                  rows={3}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--edu-accent))] bg-background text-foreground resize-none"
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setGradeModal(null)} className="flex-1 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-secondary transition-colors">
-                  Отмена
-                </button>
-                <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-lg bg-[hsl(var(--edu-blue))] text-white text-sm font-semibold hover:bg-[hsl(var(--edu-navy))] transition-colors disabled:opacity-60">
-                  {saving ? 'Сохранение...' : 'Сохранить оценку'}
-                </button>
-              </div>
-            </form>
+      {/* Modal: Grade */}
+      {showGrade && (
+        <Modal title="Выставить оценку" onClose={() => setShowGrade(null)}>
+          <div className="bg-secondary rounded p-3 mb-4">
+            <p className="text-xs font-medium text-muted-foreground mb-1">СТУДЕНТ</p>
+            <p className="text-sm font-medium">{showGrade.student_name}</p>
+            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{showGrade.solution_text}</p>
           </div>
-        </div>
+          <form onSubmit={handleGrade} className="space-y-4">
+            <Field label={`Оценка (макс. ${selectedAssignment?.max_score})`}>
+              <input className={inp} type="number" value={gradeForm.score} onChange={e => setGradeForm(f => ({ ...f, score: e.target.value }))} min="0" max={selectedAssignment?.max_score} required placeholder="0" autoFocus />
+            </Field>
+            <Field label="Комментарий">
+              <textarea className={inp + ' resize-none'} rows={3} value={gradeForm.comment} onChange={e => setGradeForm(f => ({ ...f, comment: e.target.value }))} placeholder="Комментарий к работе..." />
+            </Field>
+            <ModalActions onCancel={() => setShowGrade(null)} saving={saving} label="Сохранить" />
+          </form>
+        </Modal>
       )}
+
+      {/* Modal: Create Student */}
+      {showCreateStudent && (
+        <Modal title="Добавить студента" onClose={() => setShowCreateStudent(false)}>
+          <form onSubmit={handleCreateStudent} className="space-y-4">
+            <Field label="ФИО">
+              <input className={inp} type="text" value={sForm.full_name} onChange={e => setSForm(f => ({ ...f, full_name: e.target.value }))} placeholder="Иванов Иван Иванович" required autoFocus />
+            </Field>
+            <Field label="Логин">
+              <input className={inp} type="text" value={sForm.username} onChange={e => setSForm(f => ({ ...f, username: e.target.value }))} placeholder="ivanov_ivan" required />
+            </Field>
+            <Field label="Пароль">
+              <input className={inp} type="text" value={sForm.password} onChange={e => setSForm(f => ({ ...f, password: e.target.value }))} placeholder="Придумайте пароль" required />
+            </Field>
+            {err && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{err}</p>}
+            <ModalActions onCancel={() => setShowCreateStudent(false)} saving={saving} label="Добавить" />
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-card border border-border rounded-lg w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="font-semibold text-foreground">{title}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xl leading-none">&times;</button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-foreground mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function ModalActions({ onCancel, saving, label }: { onCancel: () => void; saving: boolean; label: string }) {
+  return (
+    <div className="flex gap-3 pt-1">
+      <button type="button" onClick={onCancel} className="flex-1 py-2 border border-border rounded text-sm font-medium hover:bg-secondary transition-colors">Отмена</button>
+      <button type="submit" disabled={saving} className="flex-1 py-2 bg-primary text-primary-foreground rounded text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity">
+        {saving ? 'Сохранение...' : label}
+      </button>
     </div>
   );
 }
