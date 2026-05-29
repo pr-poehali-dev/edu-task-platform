@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get teacher assignments",
+      "method": "GET",
+      "path": "/?user_id=1&role=teacher",
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

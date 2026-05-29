@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get solutions for assignment",
+      "method": "GET",
+      "path": "/?assignment_id=1",
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
